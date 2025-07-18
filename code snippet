@@ -1,0 +1,110 @@
+pip install pandas numpy matplotlib seaborn tqdm
+import json
+import pandas as pd
+
+with open("user-wallet-transactions.json") as f:
+    data = json.load(f)
+
+df = pd.DataFrame(data)
+df.head()
+print(df.columns)
+print(df['action'].unique())
+print(df.columns.tolist())
+print(df.iloc[0])
+import pandas as pd
+import json
+from datetime import datetime
+
+# Load your JSON
+with open('user-wallet-transactions.json') as f:
+    data = json.load(f)
+
+df = pd.DataFrame(data)
+
+# 🧼 Basic cleaning
+df = df.dropna(subset=["userWallet", "action", "timestamp"])
+df['wallet_address'] = df['userWallet']
+df['action'] = df['action'].str.lower().str.strip()
+
+# 🔄 Convert UNIX timestamp to datetime
+df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s', errors='coerce')
+
+# ✅ Filter only relevant Aave actions
+valid_actions = ['deposit', 'borrow', 'repay', 'redeemunderlying', 'liquidationcall']
+df = df[df['action'].isin(valid_actions)]
+
+# 💰 Extract amount if needed
+df['amount'] = df['actionData'].apply(lambda x: float(x.get('amount', 0)) if isinstance(x, dict) else 0)
+
+# Check final cleaned sample
+print(df[['wallet_address', 'action', 'timestamp', 'amount']].head())
+wallet_groups = df.groupby('wallet_address')
+
+wallet_features = wallet_groups['action'].value_counts().unstack(fill_value=0)
+wallet_features.columns = [f'num_{col}' for col in wallet_features.columns]
+
+wallet_features['total_txns'] = wallet_features.sum(axis=1)
+wallet_features['repay_borrow_ratio'] = wallet_features['num_repay'] / (wallet_features['num_borrow'] + 1)
+
+wallet_features['liquidation_ratio'] = wallet_features['num_liquidationcall'] / (wallet_features['total_txns'] + 1)
+
+# Active duration
+wallet_features['first_txn'] = wallet_groups['timestamp'].min()
+wallet_features['last_txn'] = wallet_groups['timestamp'].max()
+wallet_features['active_days'] = (wallet_features['last_txn'] - wallet_features['first_txn']).dt.days + 1
+
+# Drop unused date fields
+wallet_features = wallet_features.drop(columns=['first_txn', 'last_txn'])
+from sklearn.preprocessing import MinMaxScaler
+
+wallet_features['score_raw'] = (
+    3 * wallet_features['repay_borrow_ratio'] +
+    2 * wallet_features['active_days'] / wallet_features['active_days'].max() +
+    1 * wallet_features['num_deposit'] / wallet_features['total_txns'] -
+    2 * wallet_features['liquidation_ratio']
+)
+
+# Normalize to 0–1000
+scaler = MinMaxScaler(feature_range=(0, 1000))
+wallet_features['score'] = scaler.fit_transform(wallet_features[['score_raw']])
+import os
+
+# Ensure output folder exists
+os.makedirs('outputs', exist_ok=True)
+
+# Save to CSV
+wallet_scores.reset_index().to_csv("outputs/wallet_scores.csv", index=False)
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+sns.histplot(wallet_features['score'], bins=10)
+plt.title('Wallet Score Distribution')
+plt.xlabel("Score")
+plt.ylabel("Number of Wallets")
+plt.savefig("outputs/score_distribution.png")
+print("- **Low Score (0-200)**: Many liquidation calls, no repayments, very short activity period.")
+"""
+Assign a credit score (0-1000) to each wallet...
+"""
+import json
+import pandas as pd
+
+# STEP 1: Load the JSON
+with open("user-wallet-transactions.json", "r") as f:  # Replace with actual file path
+    data = json.load(f)
+
+# STEP 2: Convert to DataFrame
+df = pd.DataFrame(data)
+
+# STEP 3: Print column names to inspect
+print("Available columns:", df.columns.tolist())
+
+# STEP 4: Check sample rows
+print(df.head(3))
+df.rename(columns={"userWallet": "wallet_address"}, inplace=True)
+df = df.dropna(subset=["wallet_address", "action", "timestamp"])
+df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+df['action'] = df['action'].str.lower().str.strip()
+df = df[df['action'].isin(['deposit', 'borrow', 'repay', 'redeemunderlying', 'liquidationcall'])]
+print("Available columns:", df.columns.tolist())
+print(df.head(3))
